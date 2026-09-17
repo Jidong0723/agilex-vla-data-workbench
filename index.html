@@ -57,10 +57,10 @@
 
       <section class="robot-workbench">
         <section class="robot-visualizer panel" aria-label="机械臂三维关节链模拟">
-          <div class="panel-title"><div><h2>机械臂三维关节链</h2><p>当前帧 7 轴关节角度。</p></div><button id="reset-view" class="ghost">重置视角</button></div>
+          <div class="panel-title"><div><h2>三维反馈投影</h2><p>沿用控制台的工作区、TCP 与连杆投影语义。</p></div><span class="projection-tag">反馈投影</span></div>
           <div class="robot-stage">
-            <canvas id="robot-canvas" width="900" height="480" aria-label="可旋转的 NERO 机械臂三维骨架"></canvas>
-            <aside class="robot-help"><strong id="robot-state">正在读取 NERO URDF…</strong><p>拖动旋转 · 滚轮缩放</p><div class="legend"><span class="legend-line"></span>关节连接线</div><div class="legend"><span class="legend-dot"></span>J1–J7</div><div class="legend"><span class="legend-tip"></span>TCP</div></aside>
+            <canvas id="robot-canvas" width="900" height="480" aria-label="NERO 三维反馈投影"></canvas>
+            <aside class="robot-help"><strong id="robot-state">正在读取 NERO URDF…</strong><p>固定等距投影，和控制台保持一致。</p><div class="legend"><span class="legend-line"></span>URDF 连杆</div><div class="legend"><span class="legend-dot"></span>实际 TCP</div><div class="legend"><span class="legend-tip"></span>目标 TCP</div><p class="workspace-note">含工作区底面与最低高度面。</p></aside>
           </div>
         </section>
         <section class="panel status-panel">

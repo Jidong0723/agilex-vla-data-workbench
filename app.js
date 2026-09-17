@@ -7,7 +7,6 @@ const DATA = {
 };
 const LABELS = ["接近", "抓取", "抬升", "移动", "放下", "释放", "停顿", "失败动作"];
 let rows = [], view = {}, episode = {}, index = 0, start = null, end = null, playing = false, timer = null, robotJoints = [], robotReady = false;
-const camera = { yaw: -0.76, pitch: 0.54, zoom: 1 };
 let labels = { schema_version: "nero.episode-labels.v1", source_view: "15hz_v1", episode_outcome: "unreviewed", episode_note: "", segments: [] };
 const $ = (id) => document.getElementById(id);
 
@@ -58,27 +57,28 @@ function jointPositions(angles) {
   });
   return positions;
 }
-function projectPoint(point, center, scale) {
-  let [x,y,z] = point.map((v,i) => v-center[i]);
-  const cy=Math.cos(camera.yaw), sy=Math.sin(camera.yaw), cp=Math.cos(camera.pitch), sp=Math.sin(camera.pitch);
-  const rx=cy*x-sy*y, ry=sy*x+cy*y, rz=z, py=cp*ry-sp*rz, pz=sp*ry+cp*rz;
-  const factor = 1 / Math.max(.25, 1 + pz * .45);
-  return [rx*scale*factor, -py*scale*factor, pz];
-}
 function drawRobot() {
   const canvas=$("robot-canvas"); if (!canvas || !robotReady || !rows.length) return;
   const rect=canvas.getBoundingClientRect(), ratio=window.devicePixelRatio || 1, width=Math.max(1,Math.round(rect.width*ratio)), height=Math.max(1,Math.round(rect.height*ratio));
   if(canvas.width!==width || canvas.height!==height){canvas.width=width;canvas.height=height;} const ctx=canvas.getContext("2d"); ctx.setTransform(ratio,0,0,ratio,0,0); ctx.clearRect(0,0,rect.width,rect.height);
-  const points=jointPositions(currentRow().observation?.joint_position_rad || []); const mins=[0,1,2].map(i=>Math.min(...points.map(p=>p[i]))), maxs=[0,1,2].map(i=>Math.max(...points.map(p=>p[i]))), center=mins.map((v,i)=>(v+maxs[i])/2); center[2]=Math.min(0,center[2]); const extent=Math.max(.5,...maxs.map((v,i)=>v-mins[i])); const scale=Math.min(rect.width,rect.height)*.64/extent*camera.zoom;
-  const origin=[rect.width/2,rect.height*.58], projected=points.map(p=>projectPoint(p,center,scale));
-  ctx.lineWidth=1; ctx.strokeStyle="rgba(102,174,252,.18)"; for(let i=-4;i<=4;i++){const a=projectPoint([i*.1,-.4,0],center,scale),b=projectPoint([i*.1,.4,0],center,scale),c=projectPoint([-.4,i*.1,0],center,scale),d=projectPoint([.4,i*.1,0],center,scale);ctx.beginPath();ctx.moveTo(origin[0]+a[0],origin[1]+a[1]);ctx.lineTo(origin[0]+b[0],origin[1]+b[1]);ctx.moveTo(origin[0]+c[0],origin[1]+c[1]);ctx.lineTo(origin[0]+d[0],origin[1]+d[1]);ctx.stroke();}
-  ctx.lineWidth=5; ctx.lineCap="round"; ctx.strokeStyle="#66aefc"; ctx.beginPath(); projected.forEach((p,i)=>i?ctx.lineTo(origin[0]+p[0],origin[1]+p[1]):ctx.moveTo(origin[0]+p[0],origin[1]+p[1])); ctx.stroke();
-  projected.forEach((p,i)=>{const x=origin[0]+p[0],y=origin[1]+p[1],tip=i===projected.length-1;ctx.beginPath();ctx.fillStyle=tip?"#f4bb63":"#48d3b2";ctx.arc(x,y,tip?8:6,0,Math.PI*2);ctx.fill();ctx.fillStyle="#e9f1f7";ctx.font="12px system-ui";ctx.fillText(i===0?"BASE":tip?"TCP":`J${i}`,x+9,y-8);});
+  const row=currentRow(), obs=row.observation || {}, links=jointPositions(obs.joint_position_rad || []);
+  const measured=obs.recorded_tcp_pose?.position_m || obs.tcp_pose?.position_m || null;
+  const target=obs.target_tcp_pose?.position_m || null;
+  const min=[-.6,-.6,0], max=[.6,.6,.7], minZ=0, span=Math.max(max[0]-min[0],max[1]-min[1],max[2]-minZ,.1), scale=Math.min(rect.width,rect.height)*.72/span;
+  const project=([x,y,z])=>({x:rect.width*.53+(Number(x)-Number(y))*scale*.72,y:rect.height*.84-(Number(z)-minZ)*scale*.88-(Number(x)+Number(y))*scale*.28});
+  const line=(a,b,color,width=1,dash=[])=>{ctx.save();ctx.strokeStyle=color;ctx.lineWidth=width;ctx.lineCap="round";ctx.setLineDash(dash);ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();ctx.restore();};
+  const plane=[[min[0],min[1],minZ],[max[0],min[1],minZ],[max[0],max[1],minZ],[min[0],max[1],minZ]].map(project);
+  ctx.save();ctx.beginPath();plane.forEach((p,i)=>i?ctx.lineTo(p.x,p.y):ctx.moveTo(p.x,p.y));ctx.closePath();ctx.fillStyle="rgba(111,150,158,.12)";ctx.fill();ctx.strokeStyle="rgba(126,171,177,.55)";ctx.stroke();ctx.restore();
+  for(let i=1;i<5;i+=1){const x=min[0]+(max[0]-min[0])*i/5,y=min[1]+(max[1]-min[1])*i/5;line(project([x,min[1],minZ]),project([x,max[1],minZ]),"rgba(126,171,177,.18)");line(project([min[0],y,minZ]),project([max[0],y,minZ]),"rgba(126,171,177,.18)");}
+  const base=project([0,0,minZ]);line(base,project([.08,0,minZ]),"#ff817a",2);line(base,project([0,.08,minZ]),"#59d9a2",2);line(base,project([0,0,minZ+.08]),"#78bdf0",2);
+  ctx.save();ctx.font="11px ui-monospace, Consolas, monospace";ctx.fillStyle="#8ba09e";ctx.fillText("最低高度面  Z=0.000 m",16,22);ctx.restore();
+  for(let i=1;i<links.length;i+=1) line(project(links[i-1]),project(links[i]),i===links.length-1?"#e7eef3":"#71878b",i===links.length-1?6:5);
+  if(Array.isArray(target)&&target.length===3){const p=project(target);if(Array.isArray(measured)&&measured.length===3)line(project(measured),p,"rgba(240,197,106,.85)",2,[7,5]);ctx.save();ctx.strokeStyle="#f0c56a";ctx.lineWidth=3;ctx.beginPath();ctx.arc(p.x,p.y,10,0,Math.PI*2);ctx.stroke();ctx.font="bold 11px ui-monospace, Consolas, monospace";ctx.fillStyle="#f0c56a";ctx.fillText("T_target",p.x+13,p.y+15);ctx.restore();}
+  if(Array.isArray(measured)&&measured.length===3){const p=project(measured);ctx.save();ctx.fillStyle="#59d9a2";ctx.beginPath();ctx.arc(p.x,p.y,8,0,Math.PI*2);ctx.fill();ctx.font="11px ui-monospace, Consolas, monospace";ctx.fillStyle="#e7eef3";ctx.fillText("TCP",p.x+12,p.y-10);ctx.restore();}
+  ctx.save();ctx.font="11px ui-monospace, Consolas, monospace";ctx.fillStyle="#8ba09e";ctx.fillText("● 实际 TCP",16,rect.height-28);ctx.fillStyle="#f0c56a";ctx.fillText("○ 目标 T_ref",16,rect.height-12);ctx.restore();
 }
 function installRobotControls() {
-  const canvas=$("robot-canvas"); let last=null;
-  canvas.addEventListener("pointerdown", e=>{last=[e.clientX,e.clientY];canvas.setPointerCapture(e.pointerId);}); canvas.addEventListener("pointermove", e=>{if(!last)return;camera.yaw+=(e.clientX-last[0])*.012;camera.pitch=Math.max(-1.25,Math.min(1.25,camera.pitch+(e.clientY-last[1])*.012));last=[e.clientX,e.clientY];drawRobot();}); canvas.addEventListener("pointerup",()=>last=null); canvas.addEventListener("pointercancel",()=>last=null); canvas.addEventListener("wheel",e=>{e.preventDefault();camera.zoom=Math.max(.45,Math.min(2.4,camera.zoom*(e.deltaY>0?.9:1.1)));drawRobot();},{passive:false});
-  $("reset-view").addEventListener("click",()=>{camera.yaw=-.76;camera.pitch=.54;camera.zoom=1;drawRobot();}); window.addEventListener("resize",drawRobot);
+  window.addEventListener("resize",drawRobot);
 }
 function renderQuality() {
   const rejected = Number(view.rejected_grid_points || 0), total = rows.length + rejected;
