@@ -1,0 +1,9 @@
+# Linked source data and generated annotations are intentionally kept outside
+# the web application source history.
+episode_source/
+training_view/
+labels.json
+
+# Local server and editor artifacts
+*.log
+.DS_Store

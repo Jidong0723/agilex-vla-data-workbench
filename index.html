@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>NERO 数据标注台</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header>
+        <div>
+          <p class="eyebrow">NERO · 15 HZ DATA REVIEW</p>
+          <h1>双视角过程标注</h1>
+          <p id="load-state" class="muted">正在读取训练视图…</p>
+        </div>
+        <div class="header-actions">
+          <button id="import-labels" class="ghost">导入标签</button>
+          <input id="import-file" type="file" accept="application/json" hidden />
+          <button id="export-labels" class="primary">导出 labels.json</button>
+        </div>
+      </header>
+
+      <section class="media-grid" aria-label="同步相机画面">
+        <figure><figcaption>外部视角</figcaption><img id="external-image" alt="外部相机画面" /></figure>
+        <figure><figcaption>腕部视角</figcaption><img id="wrist-image" alt="腕部相机画面" /></figure>
+      </section>
+
+      <section class="transport" aria-label="时间轴播放控制">
+        <div class="transport-top">
+          <button id="play" class="play" aria-label="播放或暂停">▶</button>
+          <span id="frame-readout">帧 -- / --</span>
+          <span id="time-readout">--</span>
+          <label>速度 <select id="speed"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option></select></label>
+        </div>
+        <input id="timeline" type="range" min="0" max="0" value="0" aria-label="时间轴" />
+        <div class="range-readout"><span id="range-start">区间开始：--</span><span id="range-end">区间结束：--</span></div>
+      </section>
+
+      <section class="workspace">
+        <section class="panel annotation-panel">
+          <div class="panel-title"><h2>过程标签</h2><p>先定位开始帧和结束帧，再添加阶段。</p></div>
+          <div class="range-actions"><button id="set-start">设为开始</button><button id="set-end">设为结束</button><button id="clear-range" class="ghost">清除区间</button></div>
+          <div id="label-buttons" class="label-buttons"></div>
+          <label class="notes">备注<textarea id="segment-note" rows="3" placeholder="例如：夹爪已稳定抓住第一个方块"></textarea></label>
+        </section>
+
+        <section class="panel status-panel">
+          <div class="panel-title"><h2>Episode 结果</h2><p>此标签独立于原始数据保存。</p></div>
+          <div class="status-options" role="radiogroup" aria-label="Episode 结果">
+            <label><input type="radio" name="outcome" value="unreviewed" checked /> 未审核</label>
+            <label><input type="radio" name="outcome" value="success" /> 成功</label>
+            <label><input type="radio" name="outcome" value="failed" /> 失败</label>
+          </div>
+          <label class="notes">整段说明<textarea id="episode-note" rows="3" placeholder="记录失败原因、场景问题或值得保留的动作"></textarea></label>
+          <dl class="telemetry"><div><dt>夹爪</dt><dd id="gripper">--</dd></div><div><dt>TCP 坐标</dt><dd id="tcp">--</dd></div><div><dt>相机时间误差</dt><dd id="camera-error">--</dd></div></dl>
+        </section>
+      </section>
+
+      <section class="panel segments-panel">
+        <div class="panel-title"><h2>已标注阶段</h2><p>标签区间以 15 Hz 训练帧编号保存。</p></div>
+        <div id="segments" class="segments empty">尚未添加过程标签。</div>
+      </section>
+    </main>
+    <script src="app.js"></script>
+  </body>
+</html>
