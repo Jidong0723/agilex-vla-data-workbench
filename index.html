@@ -44,6 +44,11 @@
         <label class="notes">备注<textarea id="segment-note" rows="3" placeholder="例如：夹爪已稳定抓住第一个方块"></textarea></label>
       </section>
 
+      <section class="panel segments-panel">
+        <div class="panel-title"><h2>已标注阶段</h2><p>标签区间以 15 Hz 训练帧编号保存。</p></div>
+        <div id="segments" class="segments empty">尚未添加过程标签。</div>
+      </section>
+
       <section class="quality-section" aria-label="有效帧数据">
         <div class="section-heading"><h2>有效帧数据</h2><p>区分原始采集丢帧与 15 Hz 对齐时跳过的帧。</p></div>
         <div class="quality-strip">
@@ -89,10 +94,6 @@
           <dl class="telemetry"><div><dt>动作标签</dt><dd id="target-state">--</dd></div><div><dt>标注区间</dt><dd id="range-status">--</dd></div><div><dt>训练动作</dt><dd id="action-state">--</dd></div></dl>
         </section>
 
-      <section class="panel segments-panel">
-        <div class="panel-title"><h2>已标注阶段</h2><p>标签区间以 15 Hz 训练帧编号保存。</p></div>
-        <div id="segments" class="segments empty">尚未添加过程标签。</div>
-      </section>
     </main>
     <script src="app.js"></script>
   </body>
