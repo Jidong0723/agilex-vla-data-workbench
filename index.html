@@ -45,6 +45,14 @@
         <div><span>当前帧前缺口</span><strong id="current-gap">--</strong><small id="current-gap-detail">--</small></div>
       </section>
 
+      <section class="robot-visualizer panel" aria-label="机械臂三维关节链模拟">
+        <div class="panel-title"><div><h2>机械臂三维关节链</h2><p>基于当前帧 7 轴关节角度和 Episode 内 NERO URDF 计算。</p></div><button id="reset-view" class="ghost">重置视角</button></div>
+        <div class="robot-stage">
+          <canvas id="robot-canvas" width="900" height="480" aria-label="可旋转的 NERO 机械臂三维骨架"></canvas>
+          <aside class="robot-help"><strong id="robot-state">正在读取 NERO URDF…</strong><p>拖动：旋转视角</p><p>滚轮：缩放</p><div class="legend"><span class="legend-line"></span>关节连接线</div><div class="legend"><span class="legend-dot"></span>J1–J7 关节</div><div class="legend"><span class="legend-tip"></span>末端执行器</div></aside>
+        </div>
+      </section>
+
       <section class="workspace">
         <section class="panel annotation-panel">
           <div class="panel-title"><h2>过程标签</h2><p>先定位开始帧和结束帧，再添加阶段。</p></div>
