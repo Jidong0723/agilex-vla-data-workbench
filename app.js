@@ -1,162 +1,41 @@
-const DATA = {
-  observations: "training_view/observations.jsonl",
-  view: "training_view/view.json",
-  episode: "episode_source/episode.json",
-  urdf: "episode_source/raw/interface/nero_description.urdf",
-  source: "episode_source/",
-};
-const LABELS = ["接近", "抓取", "抬升", "移动", "放下", "释放", "停顿", "失败动作"];
-let rows = [], view = {}, episode = {}, index = 0, start = null, end = null, playing = false, timer = null, robotJoints = [], robotReady = false;
-let labels = { schema_version: "nero.episode-labels.v1", source_view: "15hz_v1", episode_outcome: "unreviewed", episode_note: "", segments: [] };
-const $ = (id) => document.getElementById(id);
-
-function showNumber(value, digits = 3) { return Number.isFinite(Number(value)) ? Number(value).toFixed(digits) : "--"; }
-function imagePath(relative) { return `${DATA.source}${relative}`; }
-function currentRow() { return rows[index]; }
-function formatTime(row) { return `${(index / 15).toFixed(2)} s`; }
-function xyz(pose) { const p = pose?.position_m; return p ? p.map(v => showNumber(v)).join(", ") : "缺失"; }
-function rpyDegrees(q) {
-  if (!Array.isArray(q) || q.length !== 4) return "缺失";
-  const [x, y, z, w] = q.map(Number);
-  const roll = Math.atan2(2 * (w * x + y * z), 1 - 2 * (x * x + y * y));
-  const pitch = Math.asin(Math.max(-1, Math.min(1, 2 * (w * y - z * x))));
-  const yaw = Math.atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z));
-  return [roll, pitch, yaw].map(v => showNumber(v * 180 / Math.PI, 1)).join(", ");
-}
-function gapBeforeCurrent() {
-  if (index === 0) return 0;
-  const period = 1e9 / 15;
-  const delta = rows[index].target_monotonic_ns - rows[index - 1].target_monotonic_ns;
-  return Math.max(0, Math.round(delta / period) - 1);
-}
-function matrixIdentity() { return [[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]]; }
-function matrixMultiply(a, b) { return a.map((row, i) => b[0].map((_, j) => row.reduce((sum, value, k) => sum + value * b[k][j], 0))); }
-function originMatrix(xyz, rpy) {
-  const [r,p,y] = rpy, [sx,cx] = [Math.sin(r),Math.cos(r)], [sy,cy] = [Math.sin(p),Math.cos(p)], [sz,cz] = [Math.sin(y),Math.cos(y)];
-  return [[cz*cy,cz*sy*sx-sz*cx,cz*sy*cx+sz*sx,xyz[0]],[sz*cy,sz*sy*sx+cz*cx,sz*sy*cx-cz*sx,xyz[1]],[-sy,cy*sx,cy*cx,xyz[2]],[0,0,0,1]];
-}
-function axisRotation(axis, angle) {
-  const [x,y,z] = axis, n = Math.hypot(x,y,z) || 1, [u,v,w] = [x/n,y/n,z/n], c = Math.cos(angle), s = Math.sin(angle), d = 1-c;
-  return [[c+u*u*d,u*v*d-w*s,u*w*d+v*s,0],[v*u*d+w*s,c+v*v*d,v*w*d-u*s,0],[w*u*d-v*s,w*v*d+u*s,c+w*w*d,0],[0,0,0,1]];
-}
-function vector(text, fallback) { return String(text || fallback).trim().split(/\s+/).map(Number); }
-function parseUrdf(text) {
-  const xml = new DOMParser().parseFromString(text, "application/xml");
-  if (xml.querySelector("parsererror")) throw new Error("URDF 格式无法解析");
-  return [...xml.querySelectorAll("joint")].filter(joint => /^joint[1-7]$/.test(joint.getAttribute("name")) || joint.getAttribute("name") === "end_effector_joint").map(joint => {
-    const origin = joint.querySelector("origin"), axis = joint.querySelector("axis");
-    return { name: joint.getAttribute("name"), type: joint.getAttribute("type"), xyz: vector(origin?.getAttribute("xyz"), "0 0 0"), rpy: vector(origin?.getAttribute("rpy"), "0 0 0"), axis: vector(axis?.getAttribute("xyz"), "0 0 1") };
-  });
-}
-function jointPositions(angles) {
-  let transform = matrixIdentity(), positions = [[0,0,0]];
-  robotJoints.forEach((joint, i) => {
-    transform = matrixMultiply(transform, originMatrix(joint.xyz, joint.rpy));
-    positions.push([transform[0][3], transform[1][3], transform[2][3]]);
-    if (joint.type !== "fixed") transform = matrixMultiply(transform, axisRotation(joint.axis, Number(angles[i]) || 0));
-  });
-  return positions;
-}
-function drawRobot() {
-  const canvas=$("robot-canvas"); if (!canvas || !robotReady || !rows.length) return;
-  const rect=canvas.getBoundingClientRect(), ratio=window.devicePixelRatio || 1, width=Math.max(1,Math.round(rect.width*ratio)), height=Math.max(1,Math.round(rect.height*ratio));
-  if(canvas.width!==width || canvas.height!==height){canvas.width=width;canvas.height=height;} const ctx=canvas.getContext("2d"); ctx.setTransform(ratio,0,0,ratio,0,0); ctx.clearRect(0,0,rect.width,rect.height);
-  const row=currentRow(), obs=row.observation || {}, links=jointPositions(obs.joint_position_rad || []);
-  const measured=obs.recorded_tcp_pose?.position_m || obs.tcp_pose?.position_m || null;
-  const target=obs.target_tcp_pose?.position_m || null;
-  const min=[-.6,-.6,0], max=[.6,.6,.7], minZ=0, span=Math.max(max[0]-min[0],max[1]-min[1],max[2]-minZ,.1), scale=Math.min(rect.width,rect.height)*.72/span;
-  const project=([x,y,z])=>({x:rect.width*.53+(Number(x)-Number(y))*scale*.72,y:rect.height*.84-(Number(z)-minZ)*scale*.88-(Number(x)+Number(y))*scale*.28});
-  const line=(a,b,color,width=1,dash=[])=>{ctx.save();ctx.strokeStyle=color;ctx.lineWidth=width;ctx.lineCap="round";ctx.setLineDash(dash);ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();ctx.restore();};
-  const plane=[[min[0],min[1],minZ],[max[0],min[1],minZ],[max[0],max[1],minZ],[min[0],max[1],minZ]].map(project);
-  ctx.save();ctx.beginPath();plane.forEach((p,i)=>i?ctx.lineTo(p.x,p.y):ctx.moveTo(p.x,p.y));ctx.closePath();ctx.fillStyle="rgba(111,150,158,.12)";ctx.fill();ctx.strokeStyle="rgba(126,171,177,.55)";ctx.stroke();ctx.restore();
-  for(let i=1;i<5;i+=1){const x=min[0]+(max[0]-min[0])*i/5,y=min[1]+(max[1]-min[1])*i/5;line(project([x,min[1],minZ]),project([x,max[1],minZ]),"rgba(126,171,177,.18)");line(project([min[0],y,minZ]),project([max[0],y,minZ]),"rgba(126,171,177,.18)");}
-  const base=project([0,0,minZ]);line(base,project([.08,0,minZ]),"#ff817a",2);line(base,project([0,.08,minZ]),"#59d9a2",2);line(base,project([0,0,minZ+.08]),"#78bdf0",2);
-  ctx.save();ctx.font="11px ui-monospace, Consolas, monospace";ctx.fillStyle="#8ba09e";ctx.fillText("最低高度面  Z=0.000 m",16,22);ctx.restore();
-  for(let i=1;i<links.length;i+=1) line(project(links[i-1]),project(links[i]),i===links.length-1?"#e7eef3":"#71878b",i===links.length-1?6:5);
-  if(Array.isArray(target)&&target.length===3){const p=project(target);if(Array.isArray(measured)&&measured.length===3)line(project(measured),p,"rgba(240,197,106,.85)",2,[7,5]);ctx.save();ctx.strokeStyle="#f0c56a";ctx.lineWidth=3;ctx.beginPath();ctx.arc(p.x,p.y,10,0,Math.PI*2);ctx.stroke();ctx.font="bold 11px ui-monospace, Consolas, monospace";ctx.fillStyle="#f0c56a";ctx.fillText("T_target",p.x+13,p.y+15);ctx.restore();}
-  if(Array.isArray(measured)&&measured.length===3){const p=project(measured);ctx.save();ctx.fillStyle="#59d9a2";ctx.beginPath();ctx.arc(p.x,p.y,8,0,Math.PI*2);ctx.fill();ctx.font="11px ui-monospace, Consolas, monospace";ctx.fillStyle="#e7eef3";ctx.fillText("TCP",p.x+12,p.y-10);ctx.restore();}
-  ctx.save();ctx.font="11px ui-monospace, Consolas, monospace";ctx.fillStyle="#8ba09e";ctx.fillText("● 实际 TCP",16,rect.height-28);ctx.fillStyle="#f0c56a";ctx.fillText("○ 目标 T_ref",16,rect.height-12);ctx.restore();
-}
-function installRobotControls() {
-  window.addEventListener("resize",drawRobot);
-}
-function renderQuality() {
-  const rejected = Number(view.rejected_grid_points || 0), total = rows.length + rejected;
-  const raw = episode.raw_streams || {};
-  $("aligned-frames").textContent = rows.length;
-  $("aligned-coverage").textContent = total ? `${(rows.length / total * 100).toFixed(2)}% 覆盖率` : "--";
-  $("rejected-frames").textContent = rejected;
-  $("rejected-rate").textContent = total ? `${(rejected / total * 100).toFixed(2)}% 被跳过` : "--";
-  $("raw-camera-drops").textContent = raw.camera_drops ?? "--";
-  $("raw-robot-drops").textContent = raw.robot_state_drops ?? "--";
-}
-
-function render() {
-  if (!rows.length) return;
-  const row = currentRow(), obs = row.observation || {}, align = row.alignment || {};
-  $("external-image").src = imagePath(row.images.external);
-  $("wrist-image").src = imagePath(row.images.wrist);
-  $("timeline").value = index;
-  $("frame-readout").textContent = `帧 ${index + 1} / ${rows.length}`;
-  $("time-readout").textContent = formatTime(row);
-  $("range-start").textContent = `区间开始：${start === null ? "--" : `${start} (${(start / 15).toFixed(2)} s)`}`;
-  $("range-end").textContent = `区间结束：${end === null ? "--" : `${end} (${(end / 15).toFixed(2)} s)`}`;
-  $("gripper").textContent = `${showNumber(obs.gripper_opening_ratio * 100, 1)}%`;
-  $("tcp-fk").textContent = xyz(obs.tcp_pose);
-  $("tcp-measured").textContent = xyz(obs.recorded_tcp_pose);
-  $("tcp-target").textContent = xyz(obs.target_tcp_pose);
-  $("tcp-rpy").textContent = rpyDegrees(obs.recorded_tcp_pose?.orientation_xyzw || obs.tcp_pose?.orientation_xyzw);
-  const err = align.camera_error_s; $("camera-error").textContent = err ? `外 ${showNumber(err.external, 4)}s / 腕 ${showNumber(err.wrist, 4)}s` : "--";
-  const joints = obs.joint_position_rad || [];
-  $("joint-values").innerHTML = joints.map((joint, i) => `<div><span>J${i + 1}</span><b>${showNumber(Number(joint) * 180 / Math.PI, 1)}°</b></div>`).join("");
-  const missing = gapBeforeCurrent();
-  $("current-gap").textContent = missing ? `缺 ${missing}` : "正常";
-  $("current-gap-detail").textContent = index === 0 ? "起始帧" : `与前帧间隔 ${((row.target_monotonic_ns - rows[index - 1].target_monotonic_ns) / 1e9).toFixed(3)} s`;
-  $("target-state").textContent = obs.target_tcp_pose ? "目标 TCP 已记录" : "目标 TCP 缺失";
-  $("range-status").textContent = start === null || end === null ? "未选择完整区间" : `${Math.abs(end - start) + 1} 帧`;
-  $("action-state").textContent = index < rows.length - 1 ? "可生成下一步 TCP 动作" : "末帧无下一步动作";
-  drawRobot();
-  renderSegments();
-}
-function renderSegments() {
-  const holder = $("segments"); holder.innerHTML = "";
-  if (!labels.segments.length) { holder.className = "segments empty"; holder.textContent = "尚未添加过程标签。"; return; }
-  holder.className = "segments";
-  labels.segments.forEach((segment, i) => {
-    const el = document.createElement("article"); el.className = "segment";
-    el.innerHTML = `<span class="badge">${segment.label}</span><div><strong>帧 ${segment.start_frame} – ${segment.end_frame}</strong><small>${(segment.start_frame / 15).toFixed(2)}s – ${(segment.end_frame / 15).toFixed(2)}s${segment.note ? ` · ${segment.note}` : ""}</small></div><button class="delete" data-index="${i}">删除</button>`;
-    holder.append(el);
-  });
-  holder.querySelectorAll(".delete").forEach(button => button.addEventListener("click", () => { labels.segments.splice(Number(button.dataset.index), 1); renderSegments(); }));
-}
-function setPlaying(value) { playing = value; $("play").textContent = value ? "❚❚" : "▶"; clearInterval(timer); if (value) timer = setInterval(() => { index = index >= rows.length - 1 ? 0 : index + 1; render(); }, 1000 / (15 * Number($("speed").value))); }
-function addSegment(label) {
-  if (start === null || end === null) return alert("请先用“设为开始”和“设为结束”选择一个区间。");
-  const left = Math.min(start, end), right = Math.max(start, end);
-  labels.segments.push({ label, start_frame: left, end_frame: right, start_time_s: left / 15, end_time_s: right / 15, note: $("segment-note").value.trim() });
-  labels.segments.sort((a,b) => a.start_frame - b.start_frame); $("segment-note").value = ""; start = end = null; render();
-}
-function exportLabels() {
-  labels.episode_outcome = document.querySelector('input[name="outcome"]:checked').value;
-  labels.episode_note = $("episode-note").value.trim(); labels.updated_at = new Date().toISOString(); labels.total_sensor_frames = rows.length;
-  const blob = new Blob([JSON.stringify(labels, null, 2)], { type: "application/json" }); const link = document.createElement("a"); link.href = URL.createObjectURL(blob); link.download = "labels.json"; link.click(); URL.revokeObjectURL(link.href);
-}
-async function load() {
-  try {
-    const [response, viewResponse, episodeResponse, urdfResponse] = await Promise.all([fetch(DATA.observations), fetch(DATA.view), fetch(DATA.episode), fetch(DATA.urdf)]);
-    if (!response.ok || !viewResponse.ok || !episodeResponse.ok || !urdfResponse.ok) throw new Error(`数据读取失败`);
-    rows = (await response.text()).trim().split("\n").filter(Boolean).map(JSON.parse); view = await viewResponse.json(); episode = await episodeResponse.json(); robotJoints=parseUrdf(await urdfResponse.text()); robotReady=robotJoints.length===8; if (!robotReady) throw new Error("URDF 中的关节链不完整"); if (!rows.length) throw new Error("没有观测帧");
-    $("timeline").max = rows.length - 1; $("load-state").textContent = `已加载 ${rows.length} 个 15 Hz 对齐观测帧`; render();
-    renderQuality();
-    $("robot-state").textContent = "URDF 已加载 · J1–J7 与 TCP 同步";
-  } catch (error) { $("load-state").textContent = `加载失败：${error.message}。请通过本地服务打开页面。`; }
-}
-$("timeline").addEventListener("input", (e) => { index = Number(e.target.value); render(); });
-$("play").addEventListener("click", () => setPlaying(!playing)); $("speed").addEventListener("change", () => playing && setPlaying(true));
-$("set-start").addEventListener("click", () => { start = index; render(); }); $("set-end").addEventListener("click", () => { end = index; render(); }); $("clear-range").addEventListener("click", () => { start = end = null; render(); });
-$("export-labels").addEventListener("click", exportLabels); $("import-labels").addEventListener("click", () => $("import-file").click());
-$("import-file").addEventListener("change", async (event) => { const f = event.target.files[0]; if (!f) return; try { labels = JSON.parse(await f.text()); $("episode-note").value = labels.episode_note || ""; const r = document.querySelector(`input[name="outcome"][value="${labels.episode_outcome || "unreviewed"}"]`); if (r) r.checked = true; render(); } catch { alert("无法读取 labels.json"); } });
-LABELS.forEach(label => { const button = document.createElement("button"); button.textContent = label; button.addEventListener("click", () => addSegment(label)); $("label-buttons").append(button); });
-installRobotControls();
-document.addEventListener("keydown", (event) => { if (event.target.matches("textarea, input, select")) return; if (event.code === "Space") { event.preventDefault(); setPlaying(!playing); } if (event.key === "ArrowLeft") { index = Math.max(0, index - 1); render(); } if (event.key === "ArrowRight") { index = Math.min(rows.length - 1, index + 1); render(); } });
-load();
+const DATA={observations:"training_view/observations.jsonl",view:"training_view/view.json",episode:"episode_source/episode.json",urdf:"episode_source/raw/interface/nero_description.urdf",source:"episode_source/"};
+const LABELS=["接近","抓取","抬升","移动","放下","释放","停顿","失败动作"],ALIGN={hz:15,cameraNs:30000000,robotNs:35000000};
+let rows=[],view={},episode={},index=0,start=null,end=null,playing=false,timer=null,robotJoints=[],robotReady=false,imageUrls=new Map(),activeProcessId=null;
+let labels={schema_version:"nero.episode-process-labels.v2",source_view:"15hz_v1",episode_outcome:"unreviewed",episode_note:"",processes:[]};
+const $=id=>document.getElementById(id);
+const showNumber=(value,digits=3)=>Number.isFinite(Number(value))?Number(value).toFixed(digits):"--";
+const imagePath=path=>imageUrls.get(path)||DATA.source+path;
+const currentRow=()=>rows[index];
+const formatTime=()=> (index/ALIGN.hz).toFixed(2)+" s";
+const xyz=pose=>pose&&pose.position_m?pose.position_m.map(value=>showNumber(value)).join(", "):"缺失";
+function rpyDegrees(q){if(!Array.isArray(q)||q.length!==4)return "缺失";const [x,y,z,w]=q.map(Number),roll=Math.atan2(2*(w*x+y*z),1-2*(x*x+y*y)),pitch=Math.asin(Math.max(-1,Math.min(1,2*(w*y-z*x)))),yaw=Math.atan2(2*(w*z+x*y),1-2*(y*y+z*z));return [roll,pitch,yaw].map(value=>showNumber(value*180/Math.PI,1)).join(", ");}
+function gapBeforeCurrent(){if(index===0)return 0;return Math.max(0,Math.round((rows[index].target_monotonic_ns-rows[index-1].target_monotonic_ns)/(1e9/ALIGN.hz))-1);}
+function identity(){return [[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]];}
+function multiply(a,b){return a.map(row=>b[0].map((_,j)=>row.reduce((sum,value,k)=>sum+value*b[k][j],0)));}
+function originMatrix(position,rpy){const [r,p,y]=rpy,[sx,cx]=[Math.sin(r),Math.cos(r)],[sy,cy]=[Math.sin(p),Math.cos(p)],[sz,cz]=[Math.sin(y),Math.cos(y)];return [[cz*cy,cz*sy*sx-sz*cx,cz*sy*cx+sz*sx,position[0]],[sz*cy,sz*sy*sx+cz*cx,sz*sy*cx-cz*sx,position[1]],[-sy,cy*sx,cy*cx,position[2]],[0,0,0,1]];}
+function axisRotation(axis,angle){const [x,y,z]=axis,n=Math.hypot(x,y,z)||1,[u,v,w]=[x/n,y/n,z/n],c=Math.cos(angle),s=Math.sin(angle),d=1-c;return [[c+u*u*d,u*v*d-w*s,u*w*d+v*s,0],[v*u*d+w*s,c+v*v*d,v*w*d-u*s,0],[w*u*d-v*s,w*v*d+u*s,c+w*w*d,0],[0,0,0,1]];}
+const vector=(text,fallback)=>String(text||fallback).trim().split(/\s+/).map(Number);
+function parseUrdf(text){const xml=new DOMParser().parseFromString(text,"application/xml");if(xml.querySelector("parsererror"))throw new Error("URDF 格式无法解析");return [...xml.querySelectorAll("joint")].filter(joint=>/^joint[1-7]$/.test(joint.getAttribute("name"))||joint.getAttribute("name")==="end_effector_joint").map(joint=>{const origin=joint.querySelector("origin"),axis=joint.querySelector("axis");return {name:joint.getAttribute("name"),type:joint.getAttribute("type"),xyz:vector(origin?.getAttribute("xyz"),"0 0 0"),rpy:vector(origin?.getAttribute("rpy"),"0 0 0"),axis:vector(axis?.getAttribute("xyz"),"0 0 1")};});}
+function jointPositions(angles){let transform=identity(),points=[[0,0,0]];robotJoints.forEach((joint,i)=>{transform=multiply(transform,originMatrix(joint.xyz,joint.rpy));points.push([transform[0][3],transform[1][3],transform[2][3]]);if(joint.type!=="fixed")transform=multiply(transform,axisRotation(joint.axis,Number(angles[i])||0));});return points;}
+function drawRobot(){const canvas=$("robot-canvas");if(!canvas||!robotReady||!rows.length)return;const rect=canvas.getBoundingClientRect(),ratio=window.devicePixelRatio||1,width=Math.max(1,Math.round(rect.width*ratio)),height=Math.max(1,Math.round(rect.height*ratio));if(canvas.width!==width||canvas.height!==height){canvas.width=width;canvas.height=height;}const ctx=canvas.getContext("2d");ctx.setTransform(ratio,0,0,ratio,0,0);ctx.clearRect(0,0,rect.width,rect.height);const obs=currentRow().observation||{},links=jointPositions(obs.joint_position_rad||[]),measured=obs.recorded_tcp_pose?.position_m||obs.tcp_pose?.position_m,target=obs.target_tcp_pose?.position_m,scale=Math.min(rect.width,rect.height)*.6;const project=point=>({x:rect.width*.53+(Number(point[0])-Number(point[1]))*scale*.72,y:rect.height*.84-Number(point[2])*scale*.88-(Number(point[0])+Number(point[1]))*scale*.28});const line=(a,b,color,widthValue=1,dash=[])=>{ctx.save();ctx.strokeStyle=color;ctx.lineWidth=widthValue;ctx.lineCap="round";ctx.setLineDash(dash);ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();ctx.restore();};const plane=[[-.6,-.6,0],[.6,-.6,0],[.6,.6,0],[-.6,.6,0]].map(project);ctx.save();ctx.beginPath();plane.forEach((p,i)=>i?ctx.lineTo(p.x,p.y):ctx.moveTo(p.x,p.y));ctx.closePath();ctx.fillStyle="rgba(111,150,158,.12)";ctx.fill();ctx.strokeStyle="rgba(126,171,177,.55)";ctx.stroke();ctx.restore();for(let i=1;i<5;i+=1){const x=-.6+1.2*i/5,y=-.6+1.2*i/5;line(project([x,-.6,0]),project([x,.6,0]),"rgba(126,171,177,.18)");line(project([-.6,y,0]),project([.6,y,0]),"rgba(126,171,177,.18)");}const base=project([0,0,0]);line(base,project([.08,0,0]),"#ff817a",2);line(base,project([0,.08,0]),"#59d9a2",2);line(base,project([0,0,.08]),"#78bdf0",2);for(let i=1;i<links.length;i+=1)line(project(links[i-1]),project(links[i]),i===links.length-1?"#e7eef3":"#71878b",i===links.length-1?6:5);if(Array.isArray(target)){const p=project(target);if(Array.isArray(measured))line(project(measured),p,"rgba(240,197,106,.85)",2,[7,5]);ctx.save();ctx.strokeStyle="#f0c56a";ctx.lineWidth=3;ctx.beginPath();ctx.arc(p.x,p.y,10,0,Math.PI*2);ctx.stroke();ctx.fillStyle="#f0c56a";ctx.font="bold 11px monospace";ctx.fillText("T_target",p.x+13,p.y+15);ctx.restore();}if(Array.isArray(measured)){const p=project(measured);ctx.save();ctx.fillStyle="#59d9a2";ctx.beginPath();ctx.arc(p.x,p.y,8,0,Math.PI*2);ctx.fill();ctx.fillStyle="#e7eef3";ctx.font="11px monospace";ctx.fillText("TCP",p.x+12,p.y-10);ctx.restore();}}
+function renderQuality(){const rejected=Number(view.rejected_grid_points||0),total=rows.length+rejected,raw=episode.raw_streams||{};$("aligned-frames").textContent=rows.length;$("aligned-coverage").textContent=total?(rows.length/total*100).toFixed(2)+"% 覆盖率":"--";$("rejected-frames").textContent=rejected;$("rejected-rate").textContent=total?(rejected/total*100).toFixed(2)+"% 被跳过":"--";$("raw-camera-drops").textContent=raw.camera_drops??"--";$("raw-robot-drops").textContent=raw.robot_state_drops??"--";}
+function render(){if(!rows.length)return;const row=currentRow(),obs=row.observation||{},align=row.alignment||{};$("external-image").src=imagePath(row.images.external);$("wrist-image").src=imagePath(row.images.wrist);$("timeline").value=index;$("frame-readout").textContent="帧 "+(index+1)+" / "+rows.length;$("time-readout").textContent=formatTime();$("range-start").textContent="区间开始："+(start===null?"--":start+" ("+(start/ALIGN.hz).toFixed(2)+" s)");$("range-end").textContent="区间结束："+(end===null?"--":end+" ("+(end/ALIGN.hz).toFixed(2)+" s)");$("gripper").textContent=showNumber(obs.gripper_opening_ratio*100,1)+"%";$("tcp-fk").textContent=xyz(obs.tcp_pose);$("tcp-measured").textContent=xyz(obs.recorded_tcp_pose);$("tcp-target").textContent=xyz(obs.target_tcp_pose);$("tcp-rpy").textContent=rpyDegrees(obs.recorded_tcp_pose?.orientation_xyzw||obs.tcp_pose?.orientation_xyzw);const err=align.camera_error_s;$("camera-error").textContent=err?"外 "+showNumber(err.external,4)+"s / 腕 "+showNumber(err.wrist,4)+"s":"--";$("joint-values").innerHTML=(obs.joint_position_rad||[]).map((joint,i)=>"<div><span>J"+(i+1)+"</span><b>"+showNumber(Number(joint)*180/Math.PI,1)+"°</b></div>").join("");const gap=gapBeforeCurrent();$("current-gap").textContent=gap?"缺 "+gap:"正常";$("current-gap-detail").textContent=index===0?"起始帧":"与前帧间隔 "+((row.target_monotonic_ns-rows[index-1].target_monotonic_ns)/1e9).toFixed(3)+" s";$("target-state").textContent=obs.target_tcp_pose?"目标 TCP 已记录":"目标 TCP 缺失";$("range-status").textContent=start===null||end===null?"未选择完整区间":Math.abs(end-start)+1+" 帧";$("action-state").textContent=index<rows.length-1?"可生成下一步 TCP 动作":"末帧无下一步动作";drawRobot();renderProcesses();}
+const processById=id=>labels.processes.find(item=>item.id===id);
+const makeId=()=>globalThis.crypto?.randomUUID?.()||"process-"+Date.now()+"-"+Math.random().toString(16).slice(2);
+const selectedRange=()=>start===null||end===null?null:[Math.min(start,end),Math.max(start,end)];
+function renderProcesses(){const holder=$("segments");holder.innerHTML="";const active=processById(activeProcessId);$("active-process-state").textContent=active?"当前过程："+active.title+"。选择标签片段的开始和结束帧后，点击过程标签即可加入此过程。":"尚未创建过程。先选择完整过程的开始和结束帧，填写过程标题，再点击“创建过程”。";if(!labels.processes.length){holder.className="segments empty";holder.textContent="尚未创建标注过程。";return;}holder.className="segments";labels.processes.forEach(process=>{const card=document.createElement("article");card.className="process"+(process.id===activeProcessId?" active":"");const head=document.createElement("div");head.className="process-head";const text=document.createElement("div"),title=document.createElement("strong"),range=document.createElement("small");title.textContent=process.title;range.textContent="帧 "+process.start_frame+" – "+process.end_frame+" · "+(process.start_frame/ALIGN.hz).toFixed(2)+"s – "+(process.end_frame/ALIGN.hz).toFixed(2)+"s";text.append(title,range);const actions=document.createElement("div");actions.className="process-actions";const choose=document.createElement("button");choose.textContent=process.id===activeProcessId?"当前过程":"设为当前";choose.className="ghost";choose.addEventListener("click",()=>{activeProcessId=process.id;renderProcesses();});const remove=document.createElement("button");remove.textContent="删除";remove.className="delete";remove.addEventListener("click",()=>{labels.processes=labels.processes.filter(item=>item.id!==process.id);if(activeProcessId===process.id)activeProcessId=null;renderProcesses();});actions.append(choose,remove);head.append(text,actions);card.append(head);const tags=document.createElement("div");tags.className="process-tags";if(!process.tags.length){const empty=document.createElement("small");empty.textContent="尚未添加标签片段。";tags.append(empty);}process.tags.forEach((tag,tagIndex)=>{const tagRow=document.createElement("div");tagRow.className="process-tag";const badge=document.createElement("span");badge.className="badge";badge.textContent=tag.label;const info=document.createElement("span");info.textContent="帧 "+tag.start_frame+" – "+tag.end_frame;const del=document.createElement("button");del.className="delete";del.textContent="删除";del.addEventListener("click",()=>{process.tags.splice(tagIndex,1);renderProcesses();});tagRow.append(badge,info,del);tags.append(tagRow);});card.append(tags);holder.append(card);});}
+function createProcess(){const range=selectedRange(),title=$("process-title").value.trim();if(!range)return alert("请先设定完整过程的开始帧和结束帧。");if(!title)return alert("请为完整过程填写描述性标题。");const process={id:makeId(),title,start_frame:range[0],end_frame:range[1],tags:[]};labels.processes.push(process);labels.processes.sort((a,b)=>a.start_frame-b.start_frame);activeProcessId=process.id;$("process-title").value="";start=end=null;render();}
+function addSegment(label){const process=processById(activeProcessId),range=selectedRange();if(!process)return alert("请先创建过程，或在“已标注阶段”中设为当前过程。");if(!range)return alert("请先用“设为开始”和“设为结束”选择标签片段。");if(range[0]<process.start_frame||range[1]>process.end_frame)return alert("标签片段必须位于当前过程的完整时间范围内。");process.tags.push({label,start_frame:range[0],end_frame:range[1],start_time_s:range[0]/ALIGN.hz,end_time_s:range[1]/ALIGN.hz});process.tags.sort((a,b)=>a.start_frame-b.start_frame);start=end=null;render();}
+function exportLabels(){labels.episode_outcome=document.querySelector('input[name="outcome"]:checked').value;labels.episode_note=$("episode-note").value.trim();labels.updated_at=new Date().toISOString();labels.total_sensor_frames=rows.length;labels.segments=labels.processes.flatMap(process=>process.tags.map(tag=>Object.assign({},tag,{process_id:process.id,process_title:process.title})));const blob=new Blob([JSON.stringify(labels,null,2)],{type:"application/json"}),link=document.createElement("a");link.href=URL.createObjectURL(blob);link.download="labels.json";link.click();URL.revokeObjectURL(link.href);}
+function normalizeLabels(value){const source=value&&typeof value==="object"?value:{},processes=Array.isArray(source.processes)?source.processes.map(item=>Object.assign({},item,{id:item.id||makeId(),title:item.title||"未命名过程",tags:Array.isArray(item.tags)?item.tags:[]})):[];if(!processes.length&&Array.isArray(source.segments))source.segments.forEach(segment=>processes.push({id:makeId(),title:segment.note||segment.label||"已导入过程",start_frame:segment.start_frame,end_frame:segment.end_frame,tags:[{label:segment.label,start_frame:segment.start_frame,end_frame:segment.end_frame,start_time_s:segment.start_time_s,end_time_s:segment.end_time_s}]}));return {schema_version:"nero.episode-process-labels.v2",source_view:source.source_view||"15hz_v1",episode_outcome:source.episode_outcome||"unreviewed",episode_note:source.episode_note||"",processes};}
+function nearest(items,times,target){let after=times.findIndex(value=>value>=target),choices=[after-1,after].filter(item=>item>=0&&item<times.length),selected=choices.reduce((best,item)=>best===null||Math.abs(times[item]-target)<Math.abs(times[best]-target)?item:best,null);return [items[selected],Math.abs(times[selected]-target)];}
+function interpolateRobot(items,times,target){const after=times.findIndex(value=>value>=target);if(after<=0||after>=times.length)return null;const left=items[after-1],right=items[after],span=times[after]-times[after-1];if(span<=0)return null;const alpha=(target-times[after-1])/span,blend=key=>(left[key]||[]).map((value,i)=>(1-alpha)*Number(value)+alpha*Number(right[key]?.[i]??value));return {joint_position_rad:blend("joint_position_rad"),joint_velocity_rad_s:blend("joint_velocity_rad_s"),gripper_opening_ratio:(1-alpha)*Number(left.gripper_opening_ratio)+alpha*Number(right.gripper_opening_ratio),target_gripper_opening_ratio:(1-alpha)*Number(left.target_gripper_opening_ratio??left.gripper_opening_ratio)+alpha*Number(right.target_gripper_opening_ratio??right.gripper_opening_ratio),left,right,leftTime:times[after-1],rightTime:times[after]};}
+function buildRowsFromRaw(metadata,cameraRows,robotRows){const streams={external:[],wrist:[]};cameraRows.forEach(row=>{if(streams[row.source])streams[row.source].push(row);});Object.values(streams).forEach(list=>list.sort((a,b)=>a.capture_monotonic_ns-b.capture_monotonic_ns));robotRows.sort((a,b)=>a.feedback_monotonic_ns-b.feedback_monotonic_ns);if(!streams.external.length||!streams.wrist.length||!robotRows.length)throw new Error("缺少外部相机、腕部相机或机器人状态流");const bounds=metadata.collection_monotonic_ns||{},lower=bounds.start||-Infinity,upper=bounds.end||Infinity;Object.keys(streams).forEach(source=>streams[source]=streams[source].filter(row=>row.capture_monotonic_ns>=lower&&row.capture_monotonic_ns<=upper));robotRows=robotRows.filter(row=>row.feedback_monotonic_ns>=lower&&row.feedback_monotonic_ns<=upper);const cameraTimes=Object.fromEntries(Object.entries(streams).map(([key,list])=>[key,list.map(row=>row.capture_monotonic_ns)])),robotTimes=robotRows.map(row=>row.feedback_monotonic_ns),begin=Math.max(cameraTimes.external[0],cameraTimes.wrist[0],robotTimes[0]),finish=Math.min(cameraTimes.external.at(-1),cameraTimes.wrist.at(-1),robotTimes.at(-1)),period=Math.round(1e9/ALIGN.hz);const aligned=[];let rejected=0;for(let target=begin;target<=finish;target+=period){const cameras={external:nearest(streams.external,cameraTimes.external,target),wrist:nearest(streams.wrist,cameraTimes.wrist,target)},robot=interpolateRobot(robotRows,robotTimes,target),cameraError=Math.max(cameras.external[1],cameras.wrist[1]);if(cameraError>ALIGN.cameraNs||!robot||Math.max(target-robot.leftTime,robot.rightTime-target)>ALIGN.robotNs){rejected+=1;continue;}const raw=Math.abs(target-robot.leftTime)<Math.abs(robot.rightTime-target)?robot.left:robot.right,tcp=raw.measured_tcp_pose||null;aligned.push({sensor_frame_index:aligned.length,target_monotonic_ns:target,prompt:metadata.prompt||"",images:{external:cameras.external[0].image,wrist:cameras.wrist[0].image},observation:{joint_position_rad:robot.joint_position_rad,joint_velocity_rad_s:robot.joint_velocity_rad_s,gripper_opening_ratio:robot.gripper_opening_ratio,target_gripper_opening_ratio:robot.target_gripper_opening_ratio,tcp_pose:tcp,recorded_tcp_pose:tcp,target_tcp_pose:raw.target_tcp_pose||null},alignment:{raw_camera_frame_index:{external:cameras.external[0].source_frame_index,wrist:cameras.wrist[0].source_frame_index},camera_error_s:{external:cameras.external[1]/1e9,wrist:cameras.wrist[1]/1e9},robot_left_sample_index:robot.left.sample_index,robot_right_sample_index:robot.right.sample_index}});}return {rows:aligned,view:{schema_version:"nero.tcp-vla.training-view.v1",rate_hz:ALIGN.hz,sensor_frames:aligned.length,rejected_grid_points:rejected,alignment_limits_s:{camera_nearest:ALIGN.cameraNs/1e9,robot_bracket:ALIGN.robotNs/1e9}}};}
+function makeFileMap(files){const map=new Map();[...files].forEach(file=>{const path=(file.webkitRelativePath||file.name).replace(/\\/g,"/"),parts=path.split("/");map.set(parts.slice(1).join("/")||path,file);});return map;}
+async function loadImportedEpisode(files){const map=makeFileMap(files),metadataEntry=[...map.entries()].find(([path])=>path==="episode.json"||path.endsWith("/episode.json")),metadataPath=metadataEntry?.[0],metadataFile=metadataEntry?.[1];if(!metadataFile)throw new Error("请选择一个包含 episode.json 的 episode 文件夹");const prefix=metadataPath.slice(0,-"episode.json".length),lookup=path=>map.get(prefix+path),metadata=JSON.parse(await metadataFile.text()),cameraFile=lookup(metadata.files?.raw_camera),robotFile=lookup(metadata.files?.raw_robot_state),urdfFile=lookup(metadata.processing_interface?.urdf||"raw/interface/nero_description.urdf");if(!cameraFile||!robotFile||!urdfFile)throw new Error("所选文件夹缺少相机清单、机器人状态或 URDF");const cameraRows=(await cameraFile.text()).trim().split(/\r?\n/).filter(Boolean).map(JSON.parse),robotRows=(await robotFile.text()).trim().split(/\r?\n/).filter(Boolean).map(JSON.parse);imageUrls.forEach(url=>URL.revokeObjectURL(url));imageUrls=new Map();cameraRows.forEach(row=>{const file=lookup(row.image);if(file)imageUrls.set(row.image,URL.createObjectURL(file));});const result=buildRowsFromRaw(metadata,cameraRows,robotRows);rows=result.rows;view=result.view;episode=metadata;robotJoints=parseUrdf(await urdfFile.text());robotReady=robotJoints.length===8;if(!robotReady)throw new Error("URDF 中的关节链不完整");if(!rows.length)throw new Error("原始数据无法生成有效的 15 Hz 帧");index=0;start=end=null;$("timeline").max=rows.length-1;$("load-state").textContent="已插入 "+prefix.split("/").filter(Boolean).at(-1)+"："+rows.length+" 个 15 Hz 对齐观测帧";$("import-status").textContent="已在浏览器本地完成 15 Hz 对齐；原始数据未被修改。";$("robot-state").textContent="已加载导入数据的 URDF · J1–J7 与 TCP 同步";renderQuality();render();}
+async function load(){try{const [response,viewResponse,episodeResponse,urdfResponse]=await Promise.all([fetch(DATA.observations),fetch(DATA.view),fetch(DATA.episode),fetch(DATA.urdf)]);if(!response.ok||!viewResponse.ok||!episodeResponse.ok||!urdfResponse.ok)throw new Error("数据读取失败");rows=(await response.text()).trim().split("\n").filter(Boolean).map(JSON.parse);view=await viewResponse.json();episode=await episodeResponse.json();robotJoints=parseUrdf(await urdfResponse.text());robotReady=robotJoints.length===8;if(!robotReady)throw new Error("URDF 中的关节链不完整");if(!rows.length)throw new Error("没有观测帧");$("timeline").max=rows.length-1;$("load-state").textContent="已加载 "+rows.length+" 个 15 Hz 对齐观测帧";renderQuality();$("robot-state").textContent="URDF 已加载 · J1–J7 与 TCP 同步";render();}catch(error){$("load-state").textContent="加载失败："+error.message+"。请通过本地服务打开页面。";}}
+$("timeline").addEventListener("input",event=>{index=Number(event.target.value);render();});$("play").addEventListener("click",()=>setPlaying(!playing));$("speed").addEventListener("change",()=>playing&&setPlaying(true));function setPlaying(value){playing=value;$("play").textContent=value?"❚❚":"▶";clearInterval(timer);if(value)timer=setInterval(()=>{index=index>=rows.length-1?0:index+1;render();},1000/(ALIGN.hz*Number($("speed").value)));}
+$("set-start").addEventListener("click",()=>{start=index;render();});$("set-end").addEventListener("click",()=>{end=index;render();});$("clear-range").addEventListener("click",()=>{start=end=null;render();});$("create-process").addEventListener("click",createProcess);$("export-labels").addEventListener("click",exportLabels);$("import-labels").addEventListener("click",()=>$("import-file").click());$("insert-data").addEventListener("click",()=>$("dataset-import").click());
+$("dataset-import").addEventListener("change",async event=>{const files=event.target.files;if(!files.length)return;$("import-status").textContent="正在读取并对齐原始 Episode…";try{await loadImportedEpisode(files);}catch(error){$("import-status").textContent="插入失败："+error.message;}finally{event.target.value="";}});
+$("import-file").addEventListener("change",async event=>{const file=event.target.files[0];if(!file)return;try{labels=normalizeLabels(JSON.parse(await file.text()));activeProcessId=labels.processes[0]?.id||null;$("episode-note").value=labels.episode_note||"";const outcome=document.querySelector('input[name="outcome"][value="'+labels.episode_outcome+'"]');if(outcome)outcome.checked=true;renderProcesses();}catch{alert("无法读取 labels.json");}});
+LABELS.forEach(label=>{const button=document.createElement("button");button.textContent=label;button.addEventListener("click",()=>addSegment(label));$("label-buttons").append(button);});window.addEventListener("resize",drawRobot);document.addEventListener("keydown",event=>{if(event.target.matches("textarea,input,select"))return;if(event.code==="Space"){event.preventDefault();setPlaying(!playing);}if(event.key==="ArrowLeft"){index=Math.max(0,index-1);render();}if(event.key==="ArrowRight"){index=Math.min(rows.length-1,index+1);render();}});load();

@@ -19,4 +19,10 @@
 
 ## 标签文件
 
-导出的 `labels.json` 仅包含标签区间、备注和 Episode 结果。它以 15 Hz 帧索引标记区间，不会修改原始 Episode 或训练视图。
+导出的 `labels.json` 使用 `nero.episode-process-labels.v2`：每个完整过程有一个可读标题和时间范围，过程下可包含多个细粒度标签片段。文件同时保留平铺的 `segments` 字段，方便与早期工具兼容。
+
+它以 15 Hz 帧索引标记区间，不会修改原始 Episode 或训练视图。
+
+## 插入原始 Episode
+
+“插入数据”接受一个原始 `episode_xxxxxx` 文件夹，读取 `episode.json`、相机清单、机器人状态、图像和 URDF。在浏览器内存中按上述对齐规则生成审阅视图；刷新页面或选择另一条 Episode 后，内存视图会被替换，原始文件不会被写入。

@@ -15,11 +15,14 @@
           <p id="load-state" class="muted">正在读取训练视图…</p>
         </div>
         <div class="header-actions">
+          <button id="insert-data" class="ghost">插入数据</button>
+          <input id="dataset-import" type="file" webkitdirectory directory multiple hidden />
           <button id="import-labels" class="ghost">导入标签</button>
           <input id="import-file" type="file" accept="application/json" hidden />
           <button id="export-labels" class="primary">导出 labels.json</button>
         </div>
       </header>
+      <p id="import-status" class="import-status">插入数据：选择 <code>G:\codex-yufan\dataset\episodes</code> 中的一个 <code>episode_xxxxxx</code> 文件夹。</p>
 
       <section class="media-grid" aria-label="同步相机画面">
         <figure><figcaption>外部视角</figcaption><img id="external-image" alt="外部相机画面" /></figure>
@@ -38,14 +41,15 @@
       </section>
 
       <section class="panel annotation-panel">
-        <div class="panel-title"><h2>过程标签</h2><p>先定位开始帧和结束帧，再添加阶段。</p></div>
-        <div class="range-actions"><button id="set-start">设为开始</button><button id="set-end">设为结束</button><button id="clear-range" class="ghost">清除区间</button></div>
+        <div class="panel-title"><h2>过程标签</h2><p>先创建一个完整过程，再在其中添加多个阶段标签。</p></div>
+        <div class="range-actions"><button id="set-start">设为开始</button><button id="set-end">设为结束</button><button id="clear-range" class="ghost">清除区间</button><button id="create-process" class="primary">创建过程</button></div>
         <div id="label-buttons" class="label-buttons"></div>
-        <label class="notes">备注<textarea id="segment-note" rows="3" placeholder="例如：夹爪已稳定抓住第一个方块"></textarea></label>
+        <label class="notes">过程标题<textarea id="process-title" rows="3" placeholder="例如：将红色物块拾起并移动到 P1 区域"></textarea></label>
+        <p id="active-process-state" class="active-process-state">尚未创建过程。先选择完整过程的开始和结束帧，填写过程标题，再点击“创建过程”。</p>
       </section>
 
       <section class="panel segments-panel">
-        <div class="panel-title"><h2>已标注阶段</h2><p>标签区间以 15 Hz 训练帧编号保存。</p></div>
+        <div class="panel-title"><h2>已标注阶段</h2><p>过程标题下可包含多个 15 Hz 标签片段。</p></div>
         <div id="segments" class="segments empty">尚未添加过程标签。</div>
       </section>
 
