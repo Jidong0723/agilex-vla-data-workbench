@@ -37,12 +37,34 @@
         <div class="range-readout"><span id="range-start">区间开始：--</span><span id="range-end">区间结束：--</span></div>
       </section>
 
+      <section class="quality-strip" aria-label="数据质量概览">
+        <div><span>15 Hz 有效帧</span><strong id="aligned-frames">--</strong><small id="aligned-coverage">--</small></div>
+        <div><span>对齐跳过帧</span><strong id="rejected-frames">--</strong><small id="rejected-rate">--</small></div>
+        <div><span>原始相机丢帧</span><strong id="raw-camera-drops">--</strong><small>采集阶段</small></div>
+        <div><span>原始机器人丢帧</span><strong id="raw-robot-drops">--</strong><small>采集阶段</small></div>
+        <div><span>当前帧前缺口</span><strong id="current-gap">--</strong><small id="current-gap-detail">--</small></div>
+      </section>
+
       <section class="workspace">
         <section class="panel annotation-panel">
           <div class="panel-title"><h2>过程标签</h2><p>先定位开始帧和结束帧，再添加阶段。</p></div>
           <div class="range-actions"><button id="set-start">设为开始</button><button id="set-end">设为结束</button><button id="clear-range" class="ghost">清除区间</button></div>
           <div id="label-buttons" class="label-buttons"></div>
           <label class="notes">备注<textarea id="segment-note" rows="3" placeholder="例如：夹爪已稳定抓住第一个方块"></textarea></label>
+        </section>
+
+        <section class="panel status-panel">
+          <div class="panel-title"><h2>机器人位姿</h2><p>与当前双相机画面同一 15 Hz 时间点。</p></div>
+          <div class="pose-grid">
+            <div><span>FK TCP · m</span><b id="tcp-fk">--</b></div>
+            <div><span>实测 TCP · m</span><b id="tcp-measured">--</b></div>
+            <div><span>目标 TCP · m</span><b id="tcp-target">--</b></div>
+            <div><span>姿态 RPY · °</span><b id="tcp-rpy">--</b></div>
+            <div><span>夹爪开合</span><b id="gripper">--</b></div>
+            <div><span>相机时间误差</span><b id="camera-error">--</b></div>
+          </div>
+          <div class="joint-title"><h3>7 轴关节角度</h3><span>单位：度</span></div>
+          <div id="joint-values" class="joint-values"></div>
         </section>
 
         <section class="panel status-panel">
@@ -53,7 +75,7 @@
             <label><input type="radio" name="outcome" value="failed" /> 失败</label>
           </div>
           <label class="notes">整段说明<textarea id="episode-note" rows="3" placeholder="记录失败原因、场景问题或值得保留的动作"></textarea></label>
-          <dl class="telemetry"><div><dt>夹爪</dt><dd id="gripper">--</dd></div><div><dt>TCP 坐标</dt><dd id="tcp">--</dd></div><div><dt>相机时间误差</dt><dd id="camera-error">--</dd></div></dl>
+          <dl class="telemetry"><div><dt>动作标签</dt><dd id="target-state">--</dd></div><div><dt>标注区间</dt><dd id="range-status">--</dd></div><div><dt>训练动作</dt><dd id="action-state">--</dd></div></dl>
         </section>
       </section>
 
