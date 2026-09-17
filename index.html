@@ -37,30 +37,32 @@
         <div class="range-readout"><span id="range-start">区间开始：--</span><span id="range-end">区间结束：--</span></div>
       </section>
 
-      <section class="quality-strip" aria-label="数据质量概览">
-        <div><span>15 Hz 有效帧</span><strong id="aligned-frames">--</strong><small id="aligned-coverage">--</small></div>
-        <div><span>对齐跳过帧</span><strong id="rejected-frames">--</strong><small id="rejected-rate">--</small></div>
-        <div><span>原始相机丢帧</span><strong id="raw-camera-drops">--</strong><small>采集阶段</small></div>
-        <div><span>原始机器人丢帧</span><strong id="raw-robot-drops">--</strong><small>采集阶段</small></div>
-        <div><span>当前帧前缺口</span><strong id="current-gap">--</strong><small id="current-gap-detail">--</small></div>
+      <section class="panel annotation-panel">
+        <div class="panel-title"><h2>过程标签</h2><p>先定位开始帧和结束帧，再添加阶段。</p></div>
+        <div class="range-actions"><button id="set-start">设为开始</button><button id="set-end">设为结束</button><button id="clear-range" class="ghost">清除区间</button></div>
+        <div id="label-buttons" class="label-buttons"></div>
+        <label class="notes">备注<textarea id="segment-note" rows="3" placeholder="例如：夹爪已稳定抓住第一个方块"></textarea></label>
       </section>
 
-      <section class="robot-visualizer panel" aria-label="机械臂三维关节链模拟">
-        <div class="panel-title"><div><h2>机械臂三维关节链</h2><p>基于当前帧 7 轴关节角度和 Episode 内 NERO URDF 计算。</p></div><button id="reset-view" class="ghost">重置视角</button></div>
-        <div class="robot-stage">
-          <canvas id="robot-canvas" width="900" height="480" aria-label="可旋转的 NERO 机械臂三维骨架"></canvas>
-          <aside class="robot-help"><strong id="robot-state">正在读取 NERO URDF…</strong><p>拖动：旋转视角</p><p>滚轮：缩放</p><div class="legend"><span class="legend-line"></span>关节连接线</div><div class="legend"><span class="legend-dot"></span>J1–J7 关节</div><div class="legend"><span class="legend-tip"></span>末端执行器</div></aside>
+      <section class="quality-section" aria-label="有效帧数据">
+        <div class="section-heading"><h2>有效帧数据</h2><p>区分原始采集丢帧与 15 Hz 对齐时跳过的帧。</p></div>
+        <div class="quality-strip">
+          <div><span>15 Hz 有效帧</span><strong id="aligned-frames">--</strong><small id="aligned-coverage">--</small></div>
+          <div><span>对齐跳过帧</span><strong id="rejected-frames">--</strong><small id="rejected-rate">--</small></div>
+          <div><span>原始相机丢帧</span><strong id="raw-camera-drops">--</strong><small>采集阶段</small></div>
+          <div><span>原始机器人丢帧</span><strong id="raw-robot-drops">--</strong><small>采集阶段</small></div>
+          <div><span>当前帧前缺口</span><strong id="current-gap">--</strong><small id="current-gap-detail">--</small></div>
         </div>
       </section>
 
-      <section class="workspace">
-        <section class="panel annotation-panel">
-          <div class="panel-title"><h2>过程标签</h2><p>先定位开始帧和结束帧，再添加阶段。</p></div>
-          <div class="range-actions"><button id="set-start">设为开始</button><button id="set-end">设为结束</button><button id="clear-range" class="ghost">清除区间</button></div>
-          <div id="label-buttons" class="label-buttons"></div>
-          <label class="notes">备注<textarea id="segment-note" rows="3" placeholder="例如：夹爪已稳定抓住第一个方块"></textarea></label>
+      <section class="robot-workbench">
+        <section class="robot-visualizer panel" aria-label="机械臂三维关节链模拟">
+          <div class="panel-title"><div><h2>机械臂三维关节链</h2><p>当前帧 7 轴关节角度。</p></div><button id="reset-view" class="ghost">重置视角</button></div>
+          <div class="robot-stage">
+            <canvas id="robot-canvas" width="900" height="480" aria-label="可旋转的 NERO 机械臂三维骨架"></canvas>
+            <aside class="robot-help"><strong id="robot-state">正在读取 NERO URDF…</strong><p>拖动旋转 · 滚轮缩放</p><div class="legend"><span class="legend-line"></span>关节连接线</div><div class="legend"><span class="legend-dot"></span>J1–J7</div><div class="legend"><span class="legend-tip"></span>TCP</div></aside>
+          </div>
         </section>
-
         <section class="panel status-panel">
           <div class="panel-title"><h2>机器人位姿</h2><p>与当前双相机画面同一 15 Hz 时间点。</p></div>
           <div class="pose-grid">
@@ -74,8 +76,9 @@
           <div class="joint-title"><h3>7 轴关节角度</h3><span>单位：度</span></div>
           <div id="joint-values" class="joint-values"></div>
         </section>
+      </section>
 
-        <section class="panel status-panel">
+        <section class="panel status-panel outcome-panel">
           <div class="panel-title"><h2>Episode 结果</h2><p>此标签独立于原始数据保存。</p></div>
           <div class="status-options" role="radiogroup" aria-label="Episode 结果">
             <label><input type="radio" name="outcome" value="unreviewed" checked /> 未审核</label>
@@ -85,7 +88,6 @@
           <label class="notes">整段说明<textarea id="episode-note" rows="3" placeholder="记录失败原因、场景问题或值得保留的动作"></textarea></label>
           <dl class="telemetry"><div><dt>动作标签</dt><dd id="target-state">--</dd></div><div><dt>标注区间</dt><dd id="range-status">--</dd></div><div><dt>训练动作</dt><dd id="action-state">--</dd></div></dl>
         </section>
-      </section>
 
       <section class="panel segments-panel">
         <div class="panel-title"><h2>已标注阶段</h2><p>标签区间以 15 Hz 训练帧编号保存。</p></div>
