@@ -1,4 +1,4 @@
-# VLA Data Workbench
+# AgileX VLA Data Workbench
 
 一个本地优先的数据审阅与人工标注工具，用于将 NERO 机械臂采集的原始 Episode 转换为可检查的 15 Hz 训练视图。
 
