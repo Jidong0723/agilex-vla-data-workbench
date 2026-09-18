@@ -32,3 +32,14 @@
 “导出 episode”按照完整过程的数量切割源 Episode。每个过程对应一个输出目录，名称为原始 Episode 名称加序号后缀，例如 `episode_000001.1`、`episode_000001.2`。每个目录保留原始 Episode 的文件布局：`episode.json`、相机清单、机器人状态、引用图像与接口文件。其元数据会记录来源 Episode、过程标题、过程标签及新的时间边界。
 
 导出仅能从 `G:\\codex-yufan\\dataset\\episodes` 读取，并且仅能写入 `G:\\codex-yufan\\after data processing`。若目标名称已存在，导出会停止且不会覆盖已有数据。
+
+## LeRobot 训练数据导出
+
+“导出 LeRobot Dataset”从与页面相同的有效 15 Hz 对齐视图生成一个独立的 LeRobot v2.1 数据集。每个完整过程成为一个 LeRobot episode；过程标题成为该 episode 的 `task`。输出根目录固定为 `G:\\codex-yufan\\LeRobot Dataset`，例如 `episode_000001_lerobot/`，不会覆盖同名目录。
+
+- `observation.state`：7 个关节角与夹爪开合比例。
+- `action`：下一有效 15 Hz 帧的关节角与夹爪开合比例；最后一帧保持当前状态。
+- `observation.images.external`、`observation.images.wrist`：对应相机的 15 Hz MP4 视频与帧时间戳。
+- `meta/`：任务、episode、字段定义与状态/动作统计数据。
+
+这是面向训练的派生副本；它不会修改 `dataset/` 中的原始采集数据，也不会修改 `after data processing/` 中供人工审核的切割 Episode。
