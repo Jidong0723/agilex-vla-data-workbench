@@ -12,6 +12,7 @@
 - 基于 NERO URDF 和关节反馈的三维投影，以及 FK、实测与目标 TCP 位姿读数。
 - 从 `dataset/episodes/` 选择原始 Episode，在浏览器本地重建 15 Hz 审阅视图。
 - 以描述性过程标题组织多个细粒度标签片段。
+- 将每个完整过程导出为独立的原始 Episode 格式目录。
 - 独立导入、导出标签，不修改原始 Episode 或派生训练视图。
 
 ## 本地运行
@@ -19,15 +20,17 @@
 1. 为本机 Episode 建立以下本地链接（它们不应提交到 Git）：
    - `training_view/`：15 Hz 派生视图，含 `observations.jsonl` 与 `view.json`。
    - `episode_source/`：原始 Episode，含图像、`episode.json` 和 URDF。
-2. 在仓库根目录启动任意静态文件服务，例如：
+2. 在仓库根目录启动本地工作台服务：
 
    ```powershell
-   python -m http.server 8790 --bind 127.0.0.1
+   python server.py
    ```
 
 3. 在浏览器打开 `http://127.0.0.1:8790/`。
 
 要处理新数据，点击顶部“插入数据”，选择 `G:\codex-yufan\dataset\episodes` 下的一个 `episode_xxxxxx` 文件夹。处理在浏览器内存中完成，原始文件不会被复制或修改。
+
+完成过程标注后，点击“导出 episode”。每个完整过程会生成一个目录，例如 `episode_000001.1`、`episode_000001.2`，保存在 `G:\codex-yufan\after data processing`。原始 Episode 不会被改写；同名输出目录也不会被覆盖。
 
 详细的数据约定与 15 Hz 对齐规则见 [docs/data-contract.md](docs/data-contract.md)。
 

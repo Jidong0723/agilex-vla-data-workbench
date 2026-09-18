@@ -26,3 +26,9 @@
 ## 插入原始 Episode
 
 “插入数据”接受一个原始 `episode_xxxxxx` 文件夹，读取 `episode.json`、相机清单、机器人状态、图像和 URDF。在浏览器内存中按上述对齐规则生成审阅视图；刷新页面或选择另一条 Episode 后，内存视图会被替换，原始文件不会被写入。
+
+## 切割导出
+
+“导出 episode”按照完整过程的数量切割源 Episode。每个过程对应一个输出目录，名称为原始 Episode 名称加序号后缀，例如 `episode_000001.1`、`episode_000001.2`。每个目录保留原始 Episode 的文件布局：`episode.json`、相机清单、机器人状态、引用图像与接口文件。其元数据会记录来源 Episode、过程标题、过程标签及新的时间边界。
+
+导出仅能从 `G:\\codex-yufan\\dataset\\episodes` 读取，并且仅能写入 `G:\\codex-yufan\\after data processing`。若目标名称已存在，导出会停止且不会覆盖已有数据。

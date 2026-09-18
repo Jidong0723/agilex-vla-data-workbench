@@ -11,3 +11,5 @@ labels.json
 Thumbs.db
 .vscode/
 .idea/
+__pycache__/
+*.pyc
