@@ -4,13 +4,13 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>NERO 数据标注台</title>
-    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="styles.css?v=20261001-1" />
   </head>
   <body>
     <main class="shell">
       <header>
         <div>
-          <p class="eyebrow">NERO · 15 HZ DATA REVIEW</p>
+          <p class="eyebrow">NERO · 20 HZ DATA REVIEW</p>
           <h1>双视角过程标注</h1>
           <p id="load-state" class="muted">正在读取训练视图…</p>
         </div>
@@ -19,12 +19,25 @@
           <input id="dataset-import" type="file" webkitdirectory directory multiple hidden />
           <button id="import-labels" class="ghost">导入标签</button>
           <input id="import-file" type="file" accept="application/json" hidden />
-          <button id="export-labels" class="primary">导出 labels.json</button>
-          <button id="export-episodes" class="primary">导出 episode</button>
-          <button id="export-lerobot" class="primary">导出 LeRobot Dataset</button>
+          <button id="generate-draft" class="ghost">生成草案</button>
+          <button id="export-all" class="primary">导出标注与 LeRobot 数据</button>
+          <button id="practice-mode" class="ghost">练习模式：关</button>
+          <button id="clear-memory" class="ghost">清空记忆库</button>
         </div>
       </header>
-      <p id="import-status" class="import-status">插入数据：选择 <code>G:\codex-yufan\dataset\episodes</code> 中的一个 <code>episode_xxxxxx</code> 文件夹。</p>
+      <p id="import-status" class="import-status">插入 Episode：点击按钮选择单个文件夹或其父文件夹批量导入，也可以把一个或多个 episode 文件夹直接拖进页面。</p>
+      <label class="export-location" for="export-directory"><span>导出保存目录</span><input id="export-directory" type="text" placeholder="留空使用默认目录；也可输入本机已存在的绝对路径" autocomplete="off" /><small>填写后，LeRobot 中间数据及同版 labels.json 一起保存在该目录下；浏览器仍会下载一份 labels.json。</small></label>
+      <div id="drop-zone" class="drop-zone" role="button" tabindex="0" aria-label="拖入或点击选择 Episode 文件夹">
+        <span class="drop-zone-icon">⇩</span>
+        <span class="drop-zone-text"><strong>把 Episode 文件夹拖到这里即可插入</strong><small>支持一次拖入多个文件夹或整个 episodes 父文件夹批量导入；也可以点击此处选择文件夹</small></span>
+      </div>
+      <div id="batch-nav" class="batch-nav" hidden>
+        <button id="batch-prev" class="ghost">◀ 上一组</button>
+        <select id="batch-select" aria-label="选择 Episode"></select>
+        <button id="batch-next" class="ghost">下一组 ▶</button>
+        <span id="batch-progress"></span>
+        <button id="batch-export-all" class="ghost">导出全部已标 labels</button>
+      </div>
 
       <section class="media-grid" aria-label="同步相机画面">
         <figure><figcaption>外部视角</figcaption><img id="external-image" alt="外部相机画面" /></figure>
@@ -38,7 +51,10 @@
           <span id="time-readout">--</span>
           <label>速度 <select id="speed"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option></select></label>
         </div>
+        <div id="process-band" class="process-band" aria-label="已创建过程条"></div>
         <input id="timeline" type="range" min="0" max="0" value="0" aria-label="时间轴" />
+        <div id="boundary-ticks" class="boundary-ticks" aria-label="自动建议边界刻度"></div>
+        <div id="stage-band" class="stage-band" aria-label="建议阶段色带"></div>
         <div class="range-readout"><span id="range-start">区间开始：--</span><span id="range-end">区间结束：--</span></div>
       </section>
 
@@ -46,20 +62,21 @@
         <div class="panel-title"><h2>过程标签</h2><p>先创建一个完整过程，再在其中添加多个阶段标签。</p></div>
         <div class="range-actions"><button id="set-start">设为开始</button><button id="set-end">设为结束</button><button id="clear-range" class="ghost">清除区间</button><button id="create-process" class="primary">创建过程</button></div>
         <div id="label-buttons" class="label-buttons"></div>
+        <div id="title-presets" class="label-buttons" aria-label="预置过程标题"></div>
         <label class="notes">过程标题<textarea id="process-title" rows="3" placeholder="例如：将红色物块拾起并移动到 P1 区域"></textarea></label>
         <p id="active-process-state" class="active-process-state">尚未创建过程。先选择完整过程的开始和结束帧，填写过程标题，再点击“创建过程”。</p>
       </section>
 
       <section class="panel segments-panel">
-        <div class="panel-title"><h2>已标注阶段</h2><p>过程标题下可包含多个 15 Hz 标签片段。</p></div>
+        <div class="panel-title"><h2>已标注阶段</h2><p>过程标题下可包含多个 20 Hz 标签片段。</p></div>
         <div id="segments" class="segments empty">尚未添加过程标签。</div>
       </section>
 
       <section class="quality-section" aria-label="有效帧数据">
-        <div class="section-heading"><h2>有效帧数据</h2><p>区分原始采集丢帧与 15 Hz 对齐时跳过的帧。</p></div>
+        <div class="section-heading"><h2>有效帧数据</h2><p>区分原始采集丢帧与 20 Hz 对齐时跳过的帧。</p></div>
         <div class="quality-strip">
-          <div><span>15 Hz 有效帧</span><strong id="aligned-frames">--</strong><small id="aligned-coverage">--</small></div>
-          <div><span>对齐跳过帧</span><strong id="rejected-frames">--</strong><small id="rejected-rate">--</small></div>
+          <div><span>20 Hz 有效帧</span><strong id="aligned-frames">--</strong><small id="aligned-coverage">--</small></div>
+          <div><span>阈值筛除</span><strong id="rejected-frames">--</strong><small id="rejected-rate">--</small></div>
           <div><span>原始相机丢帧</span><strong id="raw-camera-drops">--</strong><small>采集阶段</small></div>
           <div><span>原始机器人丢帧</span><strong id="raw-robot-drops">--</strong><small>采集阶段</small></div>
           <div><span>当前帧前缺口</span><strong id="current-gap">--</strong><small id="current-gap-detail">--</small></div>
@@ -75,9 +92,10 @@
           </div>
         </section>
         <section class="panel status-panel">
-          <div class="panel-title"><h2>机器人位姿</h2><p>与当前双相机画面同一 15 Hz 时间点。</p></div>
+          <div class="panel-title"><h2>机器人位姿</h2><p>与当前双相机画面同一 20 Hz 时间点。</p></div>
           <div class="pose-grid">
             <div><span>FK TCP · m</span><b id="tcp-fk">--</b></div>
+            <div><span>下一相邻 FK TCP · m</span><b id="tcp-next">--</b></div>
             <div><span>实测 TCP · m</span><b id="tcp-measured">--</b></div>
             <div><span>目标 TCP · m</span><b id="tcp-target">--</b></div>
             <div><span>姿态 RPY · °</span><b id="tcp-rpy">--</b></div>
@@ -97,11 +115,11 @@
             <label><input type="radio" name="outcome" value="failed" /> 失败</label>
           </div>
           <label class="notes">整段说明<textarea id="episode-note" rows="3" placeholder="记录失败原因、场景问题或值得保留的动作"></textarea></label>
-          <dl class="telemetry"><div><dt>动作标签</dt><dd id="target-state">--</dd></div><div><dt>标注区间</dt><dd id="range-status">--</dd></div><div><dt>训练动作</dt><dd id="action-state">--</dd></div></dl>
+          <dl class="telemetry"><div><dt>目标 TCP</dt><dd id="target-state">--</dd></div><div><dt>标注区间</dt><dd id="range-status">--</dd></div><div><dt>数据阶段</dt><dd id="action-state">动作中间数据</dd></div></dl>
         </section>
 
     </main>
-    <script src="app.js"></script>
-    <script src="exporter.js"></script>
+    <script src="app.js?v=20261001-3"></script>
+    <script src="exporter.js?v=20261001-3"></script>
   </body>
 </html>
